@@ -1,6 +1,6 @@
 // PlayersAndCoachesScreen.jsx
-import React, { useState, useEffect, useReducer, useCallback } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, FlatList, Alert, SafeAreaView, ScrollView } from 'react-native';
+import React, { useState, useEffect, useReducer, useCallback, useMemo } from 'react';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, FlatList, Alert, SafeAreaView, ScrollView, useColorScheme } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
@@ -60,7 +60,90 @@ const playersCoachesReducer = (state, action) => {
   }
 };
 
+// Hook para manejar el tema
+const useTheme = () => {
+  const systemTheme = useColorScheme();
+  const [isDarkMode, setIsDarkMode] = useState(systemTheme === 'dark');
+
+  useEffect(() => {
+    const loadTheme = async () => {
+      try {
+        const savedTheme = await AsyncStorage.getItem('AppTheme');
+        if (savedTheme) {
+          setIsDarkMode(savedTheme === 'dark');
+        } else {
+          // Si no hay tema guardado, usar el tema del sistema
+          setIsDarkMode(systemTheme === 'dark');
+        }
+      } catch (error) {
+        console.log('Error loading theme:', error);
+        // En caso de error, usar el tema del sistema
+        setIsDarkMode(systemTheme === 'dark');
+      }
+    };
+    loadTheme();
+  }, []);
+
+  // Efecto para detectar cambios en el tema del sistema
+  useEffect(() => {
+    const checkSystemTheme = async () => {
+      try {
+        const savedTheme = await AsyncStorage.getItem('AppTheme');
+        if (!savedTheme) {
+          // Solo cambiar si no hay tema manual guardado
+          setIsDarkMode(systemTheme === 'dark');
+        }
+      } catch (error) {
+        console.error('Error checking system theme:', error);
+      }
+    };
+    checkSystemTheme();
+  }, [systemTheme]);
+
+  // Paleta de colores estandarizada para modo claro y oscuro
+  const colors = {
+    // Fondos principales
+    background: isDarkMode ? '#11161cff' : '#f0f0f0',
+    cardBackground: isDarkMode ? '#1a212aff' : '#ffffff',
+    headerBackground: isDarkMode ? '#1a212aff' : '#ffffff',
+    inputBackground: isDarkMode ? '#2d3748' : '#ffffff',
+    
+    // Textos
+    text: isDarkMode ? '#ffffff' : '#333333',
+    textSecondary: isDarkMode ? '#b6c8d8' : '#666666',
+    placeholder: isDarkMode ? '#8a9ba8' : '#999999',
+    
+    // Bordes y divisores
+    border: isDarkMode ? '#2d3748' : '#cccccc',
+    divider: isDarkMode ? '#2d3748' : '#cccccc',
+    inputBorder: isDarkMode ? '#4a5568' : '#cccccc',
+    
+    // Botones y acciones
+    buttonPrimary: isDarkMode ? '#4a9eff' : '#007bff',
+    buttonSecondary: isDarkMode ? '#4a5568' : '#dee2e6',
+    buttonText: '#ffffff',
+    buttonTextSecondary: isDarkMode ? '#ffffff' : '#333333',
+    
+    // Estados
+    success: isDarkMode ? '#4caf50' : '#28a745',
+    danger: isDarkMode ? '#f44336' : '#dc3545',
+    
+    // Selector de equipos
+    teamButtonActive: isDarkMode ? '#4a9eff' : '#007bff',
+    teamButtonInactive: isDarkMode ? '#2d3748' : '#dee2e6',
+    teamButtonTextActive: '#ffffff',
+    teamButtonTextInactive: isDarkMode ? '#b6c8d8' : '#333333',
+  };
+
+  return { isDarkMode, colors };
+};
+
 const PlayersAndCoachesScreen = ({ navigation }) => {
+  const { isDarkMode, colors } = useTheme();
+  
+  // Crear estilos dinámicos basados en el tema
+  const styles = useMemo(() => createStyles(colors), [colors]);
+
   const [team1Name, setTeam1Name] = useState('EQUIPO 1');
   const [team2Name, setTeam2Name] = useState('EQUIPO 2');
 
@@ -236,7 +319,7 @@ const PlayersAndCoachesScreen = ({ navigation }) => {
           removeCoach(index);
         }
       }}>
-        <Ionicons name="close-circle" size={24} color="#dc3545"/>
+        <Ionicons name="close-circle" size={24} color={colors.danger}/>
       </TouchableOpacity>
     </View>
   );
@@ -245,10 +328,10 @@ const PlayersAndCoachesScreen = ({ navigation }) => {
 
   return (
     <SafeAreaView style={styles.container}>
-    <StatusBar style="auto"/>
+    <StatusBar style={isDarkMode ? 'light' : 'dark'}/>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={28} color="#007bff"/>
+          <Ionicons name="arrow-back" size={28} color={colors.buttonPrimary}/>
         </TouchableOpacity>
         <Text style={styles.title}>Equipos</Text>
       </View>
@@ -281,12 +364,13 @@ const PlayersAndCoachesScreen = ({ navigation }) => {
             <TextInput
               style={styles.input}
               placeholder="Nombre del jugador"
+              placeholderTextColor={colors.placeholder}
               value={newPlayerName}
               onChangeText={setNewPlayerName}
               onSubmitEditing={addPlayer}
             />
             <TouchableOpacity style={styles.addButton} onPress={addPlayer}>
-              <Ionicons name="add-circle" size={30} color="#28a745"/>
+              <Ionicons name="add-circle" size={30} color={colors.success}/>
             </TouchableOpacity>
           </View>
           <FlatList
@@ -304,12 +388,13 @@ const PlayersAndCoachesScreen = ({ navigation }) => {
             <TextInput
               style={styles.input}
               placeholder="Nombre del entrenador"
+              placeholderTextColor={colors.placeholder}
               value={newCoachName}
               onChangeText={setNewCoachName}
               onSubmitEditing={addCoach}
             />
             <TouchableOpacity style={styles.addButton} onPress={addCoach}>
-              <Ionicons name="add-circle" size={30} color="#28a745"/>
+              <Ionicons name="add-circle" size={30} color={colors.success}/>
             </TouchableOpacity>
           </View>
           <FlatList
@@ -325,21 +410,22 @@ const PlayersAndCoachesScreen = ({ navigation }) => {
   );
 };
 
-const styles = StyleSheet.create({
+// Función para crear estilos dinámicos basados en el tema
+const createStyles = (colors) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f0f0f0',
+    backgroundColor: colors.background,
   },
   scrollViewContent: {
-    paddingBottom: 20, // Espacio al final para que el contenido no quede pegado
+    paddingBottom: 20,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: 15,
-    backgroundColor: 'white',
+    backgroundColor: colors.headerBackground,
     borderBottomWidth: 1,
-    borderBottomColor: '#ccc',
+    borderBottomColor: colors.border,
   },
   backButton: {
     marginRight: 15,
@@ -347,42 +433,49 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#333',
+    color: colors.text,
   },
   teamSelector: {
     flexDirection: 'row',
     justifyContent: 'center',
     gap: 10,
     padding: 10,
-    backgroundColor: '#e9ecef',
+    backgroundColor: colors.cardBackground,
     borderBottomWidth: 1,
-    borderBottomColor: '#ccc',
+    borderBottomColor: colors.border,
   },
   teamButton: {
     flex: 1,
     paddingVertical: 10,
     paddingHorizontal: 10,
     borderRadius: 8,
-    backgroundColor: '#dee2e6',
+    backgroundColor: colors.teamButtonInactive,
     alignItems: 'center',
     justifyContent: 'center',
   },
   selectedTeamButton: {
-    backgroundColor: '#007bff',
+    backgroundColor: colors.teamButtonActive,
   },
   teamButtonText: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#333',
+    color: colors.teamButtonTextInactive,
     textAlign: 'center',
   },
   selectedTeamButtonText: {
-    color: 'white',
+    color: colors.teamButtonTextActive,
   },
   section: {
     padding: 15,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    borderBottomColor: colors.divider,
+    backgroundColor: colors.background,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 15,
+    color: colors.text,
   },
   inputContainer: {
     flexDirection: 'row',
@@ -392,13 +485,14 @@ const styles = StyleSheet.create({
   input: {
     flex: 1,
     borderWidth: 1,
-    borderColor: '#ccc',
+    borderColor: colors.inputBorder,
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 8,
     fontSize: 16,
     marginRight: 10,
-    backgroundColor: 'white',
+    backgroundColor: colors.inputBackground,
+    color: colors.text,
   },
   addButton: {
     padding: 5,
@@ -407,16 +501,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: 'white',
+    backgroundColor: colors.cardBackground,
     padding: 12,
     borderRadius: 8,
     marginBottom: 8,
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: colors.border,
   },
   listItemText: {
     fontSize: 16,
-    color: '#333',
+    color: colors.text,
     flex: 1,
     marginRight: 8,
   },
@@ -424,7 +518,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 20,
     fontSize: 16,
-    color: '#666',
+    color: colors.textSecondary,
   },
 });
 

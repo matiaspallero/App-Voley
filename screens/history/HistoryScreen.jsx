@@ -1,11 +1,85 @@
-import React, { useState, useCallback } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, SafeAreaView } from 'react-native';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, SafeAreaView, useColorScheme } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 
+// Hook para manejar el tema
+const useTheme = () => {
+  const systemTheme = useColorScheme();
+  const [isDarkMode, setIsDarkMode] = useState(systemTheme === 'dark');
+
+  useEffect(() => {
+    const loadTheme = async () => {
+      try {
+        const savedTheme = await AsyncStorage.getItem('AppTheme');
+        if (savedTheme) {
+          setIsDarkMode(savedTheme === 'dark');
+        } else {
+          // Si no hay tema guardado, usar el tema del sistema
+          setIsDarkMode(systemTheme === 'dark');
+        }
+      } catch (error) {
+        console.log('Error loading theme:', error);
+        // En caso de error, usar el tema del sistema
+        setIsDarkMode(systemTheme === 'dark');
+      }
+    };
+    loadTheme();
+  }, []);
+
+  // Efecto para detectar cambios en el tema del sistema
+  useEffect(() => {
+    const checkSystemTheme = async () => {
+      try {
+        const savedTheme = await AsyncStorage.getItem('AppTheme');
+        if (!savedTheme) {
+          // Solo cambiar si no hay tema manual guardado
+          setIsDarkMode(systemTheme === 'dark');
+        }
+      } catch (error) {
+        console.error('Error checking system theme:', error);
+      }
+    };
+    checkSystemTheme();
+  }, [systemTheme]);
+
+  // Paleta de colores estandarizada para modo claro y oscuro
+  const colors = {
+    // Fondos principales
+    background: isDarkMode ? '#11161cff' : '#f0f0f0',
+    cardBackground: isDarkMode ? '#1a212aff' : '#ffffff',
+    headerBackground: isDarkMode ? '#1a212aff' : '#ffffff',
+    expandedBackground: isDarkMode ? '#11161cff' : '#fafafa',
+    
+    // Textos
+    text: isDarkMode ? '#ffffff' : '#333333',
+    textSecondary: isDarkMode ? '#b6c8d8' : '#666666',
+    textTertiary: isDarkMode ? '#8a9ba8' : '#888888',
+    
+    // Bordes y divisores
+    border: isDarkMode ? '#2d3748' : '#cccccc',
+    divider: isDarkMode ? '#2d3748' : '#cccccc',
+    
+    // Botones y acciones
+    buttonPrimary: isDarkMode ? '#4a9eff' : '#007bff',
+    danger: isDarkMode ? '#f44336' : '#dc3545',
+    success: isDarkMode ? '#4caf50' : '#28a745',
+    
+    // Sombras
+    shadowColor: isDarkMode ? '#000000' : '#000000',
+  };
+
+  return { isDarkMode, colors };
+};
+
 const HistoryScreen = ({ navigation }) => {
+  const { isDarkMode, colors } = useTheme();
+  
+  // Crear estilos dinámicos basados en el tema
+  const styles = useMemo(() => createStyles(colors), [colors]);
+
   const [history, setHistory] = useState([]);
   const [expandedMatchId, setExpandedMatchId] = useState(null);
 
@@ -105,7 +179,7 @@ const HistoryScreen = ({ navigation }) => {
               </View>
             ))}
             <TouchableOpacity style={styles.deleteButton} onPress={() => confirmDeleteMatch(item.id)}>
-              <Ionicons name="trash-outline" size={20} color="#dc3545"/>
+              <Ionicons name="trash-outline" size={20} color={colors.danger}/>
             </TouchableOpacity>
           </View>
         )}
@@ -115,15 +189,15 @@ const HistoryScreen = ({ navigation }) => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar style="auto"/>
+      <StatusBar style={isDarkMode ? 'light' : 'dark'}/>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={28} color="#007bff"/>
+          <Ionicons name="arrow-back" size={28} color={colors.buttonPrimary}/>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Historial de Partidos</Text>
         {history.length > 0 && (
           <TouchableOpacity onPress={confirmClearHistory}>
-            <Ionicons name="trash-outline" size={24} color="#dc3545"/>
+            <Ionicons name="trash-outline" size={24} color={colors.danger}/>
           </TouchableOpacity>
         )}
       </View>
@@ -138,19 +212,20 @@ const HistoryScreen = ({ navigation }) => {
   );
 };
 
-const styles = StyleSheet.create({
+// Función para crear estilos dinámicos basados en el tema
+const createStyles = (colors) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f0f0f0',
+    backgroundColor: colors.background,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: 15,
-    backgroundColor: 'white',
+    backgroundColor: colors.headerBackground,
     borderBottomWidth: 1,
-    borderBottomColor: '#ccc',
+    borderBottomColor: colors.border,
   },
   backButton: {
     marginRight: 15,
@@ -158,24 +233,25 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 22,
     fontWeight: 'bold',
+    color: colors.text,
   },
   listContainer: {
     padding: 10,
   },
   matchItemContainer: {
-    backgroundColor: 'white',
+    backgroundColor: colors.cardBackground,
     borderRadius: 8,
     marginBottom: 10,
     elevation: 2,
-    shadowColor: '#000',
+    shadowColor: colors.shadowColor,
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.2,
     shadowRadius: 1.41,
-    overflow: 'hidden', // Asegura que el borde redondeado se aplique a los hijos
+    overflow: 'hidden',
   },
   matchSummary: {
     padding: 15,
-    paddingBottom: 25, // Espacio extra para la fecha
+    paddingBottom: 25,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -190,43 +266,46 @@ const styles = StyleSheet.create({
   teamName: {
     fontSize: 16,
     flex: 1,
+    color: colors.text,
   },
   winnerName: {
-  fontWeight: 'bold',
+    fontWeight: 'bold',
   },
   setScore: {
     fontSize: 20,
     fontWeight: 'bold',
     marginHorizontal: 10,
+    color: colors.text,
   },
   winnerScore: {
-    color: '#28a745', // Verde para el ganador
+    color: colors.success,
   },
   vsText: {
     fontSize: 18,
     fontWeight: 'bold',
     marginHorizontal: 10,
+    color: colors.text,
   },
   dateText: {
     position: 'absolute',
     bottom: 5,
     right: 15,
     fontSize: 12,
-    color: '#888',
+    color: colors.textTertiary,
   },
   emptyText: {
     textAlign: 'center',
     marginTop: 50,
     fontSize: 16,
-    color: '#666',
+    color: colors.textSecondary,
   },
   setDetailsContainer: {
     paddingHorizontal: 15,
     paddingBottom: 25,
     paddingTop: 10,
     borderTopWidth: 1,
-    borderTopColor: '#eee',
-    backgroundColor: '#fafafa',
+    borderTopColor: colors.divider,
+    backgroundColor: colors.expandedBackground,
   },
   setDetailRow: {
     flexDirection: 'row',
@@ -235,12 +314,12 @@ const styles = StyleSheet.create({
   },
   setDetailText: {
     fontSize: 14,
-    color: '#555',
+    color: colors.textSecondary,
   },
   setDetailScore: {
     fontSize: 14,
     fontWeight: 'bold',
-    color: '#333',
+    color: colors.text,
   },
   deleteButton: {
     position: 'absolute',

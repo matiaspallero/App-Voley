@@ -1,5 +1,5 @@
-import React, { useReducer, useEffect, useCallback, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, Alert, TextInput, Modal } from 'react-native';
+import React, { useReducer, useEffect, useCallback, useState, useMemo, useRef } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, Alert, TextInput, Modal, useColorScheme, Animated } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons, FontAwesome5 } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
@@ -7,6 +7,96 @@ import { ActionTypes } from './Constants';
 import { useTimer } from '../../hooks/useTimer';
 import { useCountdown } from '../../hooks/useCountdown';
 import { useSound } from '../../hooks/useSound';
+
+// Hook personalizado para manejo de tema
+const useTheme = () => {
+  const systemColorScheme = useColorScheme();
+  const [isDarkMode, setIsDarkMode] = useState(systemColorScheme === 'dark');
+
+  useEffect(() => {
+    const loadTheme = async () => {
+      try {
+        const savedTheme = await AsyncStorage.getItem('AppTheme');
+        if (savedTheme) {
+          setIsDarkMode(savedTheme === 'dark');
+        } else {
+          // Si no hay tema guardado, usar el tema del sistema
+          setIsDarkMode(systemColorScheme === 'dark');
+        }
+      } catch (error) {
+        console.error('Error loading theme:', error);
+        // En caso de error, usar el tema del sistema
+        setIsDarkMode(systemColorScheme === 'dark');
+      }
+    };
+    loadTheme();
+  }, []);
+
+  // Efecto para detectar cambios en el tema del sistema
+  useEffect(() => {
+    const checkSystemTheme = async () => {
+      try {
+        const savedTheme = await AsyncStorage.getItem('AppTheme');
+        if (!savedTheme) {
+          // Solo cambiar si no hay tema manual guardado
+          setIsDarkMode(systemColorScheme === 'dark');
+        }
+      } catch (error) {
+        console.error('Error checking system theme:', error);
+      }
+    };
+    checkSystemTheme();
+  }, [systemColorScheme]);
+
+  const toggleTheme = useCallback(async () => {
+    const newTheme = !isDarkMode;
+    setIsDarkMode(newTheme);
+    try {
+      await AsyncStorage.setItem('AppTheme', newTheme ? 'dark' : 'light');
+    } catch (error) {
+      console.error('Error saving theme:', error);
+    }
+  }, [isDarkMode]);
+
+  const colors = useMemo(() => ({
+    // Fondos principales
+    background: isDarkMode ? '#11161cff' : '#f0f0f0',
+    cardBackground: isDarkMode ? '#1a212aff' : '#ffffff',
+    modalBackground: isDarkMode ? '#1a212aff' : '#ffffff',
+    headerBackground: isDarkMode ? '#1a212aff' : '#ffffff',
+    inputBackground: isDarkMode ? '#1a202aff' : '#ffffff',
+    expandedBackground: isDarkMode ? '#11161cff' : '#fafafa',
+    
+    // Textos
+    text: isDarkMode ? '#ffffff' : '#333333',
+    textSecondary: isDarkMode ? '#b6c8d8' : '#666666',
+    textTertiary: isDarkMode ? '#8a9ba8' : '#888888',
+    placeholder: isDarkMode ? '#8a9ba8' : '#999999',
+    
+    // Bordes y divisores
+    border: isDarkMode ? '#2d3748' : '#cccccc',
+    divider: isDarkMode ? '#2d3748' : '#cccccc',
+    inputBorder: isDarkMode ? '#11161cff' : '#f0f0f0',
+    
+    // Botones y acciones
+    buttonPrimary: isDarkMode ? '#4a9eff' : '#007bff',
+    buttonDanger: '#dc3545',
+    buttonSecondary: isDarkMode ? '#4a5568' : '#6c757d',
+    buttonText: '#ffffff',
+    
+    // Estados específicos de la app
+    playerCircle: isDarkMode ? '#2a3b4d' : '#ADD8E6',
+    servingCircle: isDarkMode ? '#22c55e' : '#4CAF50',
+    successIcon: isDarkMode ? '#22c55e' : '#28a745',
+    success: isDarkMode ? '#4caf50' : '#28a745',
+    danger: isDarkMode ? '#f44336' : '#dc3545',
+    
+    // Sombras
+    shadowColor: isDarkMode ? '#000000' : '#000000',
+  }), [isDarkMode]);
+
+  return { isDarkMode, toggleTheme, colors };
+};
 
 
 // 1. Estado Inicial
@@ -45,7 +135,8 @@ function gameReducer(state, action) {
 
       // Lógica de rotación si hay un "side out"
       const previousServingTeam = state.servingTeam;
-      const newServingTeam = team;
+      // Solo cambia el saque si el equipo que NO estaba sirviendo anota
+      const newServingTeam = previousServingTeam === team ? previousServingTeam : team;
 
       if (newServingTeam !== previousServingTeam) {
         newState.servingTeam = newServingTeam; // El equipo que anota es el nuevo equipo que sirve
@@ -207,6 +298,8 @@ function gameReducer(state, action) {
       return action.payload.team === 1
         ? { ...state, team1Color: action.payload.color }
         : { ...state, team2Color: action.payload.color };
+    case ActionTypes.TOGGLE_SERVE:
+      return { ...state, servingTeam: state.servingTeam === 1 ? 2 : 1 };
     default:
       return state;
   }
@@ -215,6 +308,57 @@ function gameReducer(state, action) {
 const VolleyballScoreApp = ({ navigation }) => {
   const [gameState, dispatch] = useReducer(gameReducer, initialState);
   const { time, isActive, toggleTimer, resetTimer, setTime, formatTime, startTimer, pauseTimer } = useTimer(0);
+  const { isDarkMode, toggleTheme, colors } = useTheme();
+  
+  // Crear estilos dinámicos basados en el tema
+  const styles = useMemo(() => createStyles(colors), [colors]);
+
+  // 🎨 VALORES ANIMADOS (usando Animated nativo)
+  const scoreTeam1Scale = useRef(new Animated.Value(1)).current;
+  const scoreTeam2Scale = useRef(new Animated.Value(1)).current;
+  const timerPulse = useRef(new Animated.Value(1)).current;
+  const rotationOpacity = useRef(new Animated.Value(0)).current;
+  
+  // Escalado de nombres - inicializados en tamaño normal
+  const team1NameScale = useRef(new Animated.Value(1)).current;
+  const team2NameScale = useRef(new Animated.Value(1)).current;
+  
+  // Animación del cronómetro cuando está activo
+  useEffect(() => {
+    if (isActive) {
+      const pulseAnimation = Animated.loop(
+        Animated.sequence([
+          Animated.timing(timerPulse, {
+            toValue: 1.05,
+            duration: 1000,
+            useNativeDriver: true,
+          }),
+          Animated.timing(timerPulse, {
+            toValue: 1,
+            duration: 1000,
+            useNativeDriver: true,
+          })
+        ])
+      );
+      pulseAnimation.start();
+      return () => pulseAnimation.stop();
+    } else {
+      Animated.timing(timerPulse, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [isActive]);
+
+  // Animación de entrada de la sección de rotación
+  useEffect(() => {
+    Animated.timing(rotationOpacity, {
+      toValue: 1,
+      duration: 800,
+      useNativeDriver: true,
+    }).start();
+  }, []);
 
   // Estado para el modal y la cuenta atrás del tiempo muerto
   const [timeoutTeamInfo, setTimeoutTeamInfo] = useState({ name: '', remaining: 0 });
@@ -255,6 +399,29 @@ const VolleyballScoreApp = ({ navigation }) => {
     team2Color, // New
   } = gameState;
 
+  // 🎨 ESTILOS ANIMADOS (usando Animated nativo)
+  const animatedScoreTeam1Style = {
+    transform: [{ scale: scoreTeam1Scale }],
+  };
+
+  const animatedScoreTeam2Style = {
+    transform: [{ scale: scoreTeam2Scale }],
+  };
+
+  const animatedTimerStyle = {
+    transform: [{ scale: timerPulse }],
+  };
+
+  const animatedRotationStyle = {
+    opacity: rotationOpacity,
+    transform: [{ 
+      translateY: rotationOpacity.interpolate({
+        inputRange: [0, 1],
+        outputRange: [20, 0],
+      })
+    }],
+  };
+
   // Función para obtener un color de texto que contraste con el fondo
   const getContrastColor = (hexColor) => {
     if (!hexColor || hexColor.length < 7) return '#000000';
@@ -265,8 +432,87 @@ const VolleyballScoreApp = ({ navigation }) => {
     return (yiq >= 128) ? '#000000' : '#ffffff';
   };
 
-  // Función para añadir un punto
+  // Función para añadir un punto con animación
   const addPoint = useCallback((team) => {
+    
+    // 🎨 Animar el marcador del equipo que anota
+    if (team === 1) {
+      Animated.sequence([
+        Animated.timing(scoreTeam1Scale, {
+          toValue: 1.1,
+          duration: 150,
+          useNativeDriver: true,
+        }),
+        Animated.spring(scoreTeam1Scale, {
+          toValue: 1,
+          useNativeDriver: true,
+        })
+      ]).start();
+
+      // 🎯 Animar el nombre del equipo que anota (destacar momentáneamente)
+      Animated.sequence([
+        Animated.spring(team1NameScale, {
+          toValue: 1.25,
+          useNativeDriver: true,
+          tension: 150,
+          friction: 6,
+        }),
+        Animated.delay(800), // Mantener agrandado por un momento
+        Animated.spring(team1NameScale, {
+          toValue: 1,
+          useNativeDriver: true,
+          tension: 100,
+          friction: 8,
+        })
+      ]).start();
+
+      // Volver el equipo contrario a tamaño normal
+      Animated.spring(team2NameScale, {
+        toValue: 1,
+        useNativeDriver: true,
+        tension: 100,
+        friction: 8,
+      }).start();
+
+    } else {
+      Animated.sequence([
+        Animated.timing(scoreTeam2Scale, {
+          toValue: 1.1,
+          duration: 150,
+          useNativeDriver: true,
+        }),
+        Animated.spring(scoreTeam2Scale, {
+          toValue: 1,
+          useNativeDriver: true,
+        })
+      ]).start();
+
+      // 🎯 Animar el nombre del equipo que anota (destacar momentáneamente)
+      Animated.sequence([
+        Animated.spring(team2NameScale, {
+          toValue: 1.25,
+          useNativeDriver: true,
+          tension: 150,
+          friction: 6,
+        }),
+        Animated.delay(800), // Mantener agrandado por un momento
+        Animated.spring(team2NameScale, {
+          toValue: 1,
+          useNativeDriver: true,
+          tension: 100,
+          friction: 8,
+        })
+      ]).start();
+
+      // Volver el equipo contrario a tamaño normal
+      Animated.spring(team1NameScale, {
+        toValue: 1,
+        useNativeDriver: true,
+        tension: 100,
+        friction: 8,
+      }).start();
+    }
+    
     dispatch({ type: ActionTypes.ADD_POINT, payload: { team } });
   }, []);
 
@@ -279,6 +525,13 @@ const VolleyballScoreApp = ({ navigation }) => {
   const swapSides = useCallback(() => {
     dispatch({ type: ActionTypes.SWAP_SIDES });
   }, []);
+
+  // Función temporal para alternar el saque (para testing)
+  // Función para alternar el saque manualmente (para testing)
+  const toggleServe = useCallback(() => {
+    console.log('🔄 Manual toggle serve - current:', servingTeam, 'changing to:', servingTeam === 1 ? 2 : 1);
+    dispatch({ type: ActionTypes.TOGGLE_SERVE });
+  }, [servingTeam]);
 
   const handleResetTimer = useCallback(() => {
     Alert.alert("Reiniciar Cronómetro", "¿Estás seguro de que quieres reiniciar el cronómetro?", [
@@ -479,51 +732,134 @@ const VolleyballScoreApp = ({ navigation }) => {
 
   }, [setsTeam1, setsTeam2, setsToWin, team1Name, team2Name, setScoresHistory, saveMatchToHistory]);
 
-  // Función para renderizar el círculo del jugador y resaltar al sacador
+  // Función para renderizar el círculo del jugador y resaltar al sacador con animación
   const renderPlayerCircle = (playerNumber, team, currentServePosition) => {
     const isServingPlayer = (team === 1 && playerNumber === team1CurrentServePosition && servingTeam === 1) ||
                             (team === 2 && playerNumber === team2CurrentServePosition && servingTeam === 2);
+    
+    // Crear valores animados para cada jugador
+    const playerScale = useRef(new Animated.Value(1)).current;
+    const ballRotation = useRef(new Animated.Value(0)).current;
+    
+    // Animación para el jugador que saca
+    useEffect(() => {
+      if (isServingPlayer) {
+        const scaleAnimation = Animated.loop(
+          Animated.sequence([
+            Animated.timing(playerScale, {
+              toValue: 1.1,
+              duration: 800,
+              useNativeDriver: true,
+            }),
+            Animated.timing(playerScale, {
+              toValue: 1,
+              duration: 800,
+              useNativeDriver: true,
+            })
+          ])
+        );
+        
+        const rotationAnimation = Animated.loop(
+          Animated.timing(ballRotation, {
+            toValue: 1,
+            duration: 2000,
+            useNativeDriver: true,
+          })
+        );
+        
+        scaleAnimation.start();
+        rotationAnimation.start();
+        
+        return () => {
+          scaleAnimation.stop();
+          rotationAnimation.stop();
+        };
+      } else {
+        Animated.timing(playerScale, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+        }).start();
+        
+        Animated.timing(ballRotation, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }).start();
+      }
+    }, [isServingPlayer]);
+
+    const animatedPlayerStyle = {
+      transform: [{ scale: playerScale }],
+    };
+
+    const animatedBallStyle = {
+      transform: [{ 
+        rotate: ballRotation.interpolate({
+          inputRange: [0, 1],
+          outputRange: ['0deg', '360deg'],
+        })
+      }],
+    };
 
     return (
-      <View style={[styles.playerCircle, isServingPlayer && styles.servingPlayerCircle]}>
-        <Text style={styles.playerNumber}>{playerNumber}</Text>
-        {isServingPlayer && <FontAwesome5 name="volleyball-ball" size={18} color="black" style={styles.serveBallIcon} />}
-      </View>
+      <Animated.View style={[
+        createStyles(colors).playerCircle, 
+        isServingPlayer && createStyles(colors).servingPlayerCircle,
+        animatedPlayerStyle
+      ]}>
+        <Text style={createStyles(colors).playerNumber}>{playerNumber}</Text>
+        {isServingPlayer && (
+          <Animated.View style={[createStyles(colors).serveBallIcon, animatedBallStyle]}>
+            <FontAwesome5 
+              name="volleyball-ball" 
+              size={18} 
+              color={colors.text}
+            />
+          </Animated.View>
+        )}
+      </Animated.View>
     );
   };
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar style="" />
+      <StatusBar style={isDarkMode ? 'light' : 'dark'}/>
       <View style={styles.topBar}>
-        <TouchableOpacity
-          style={styles.timerContainer}
-          onPress={toggleTimer}
-          onLongPress={handleResetTimer}
-        >
-          <Text style={styles.timerText}>{formatTime(time)}</Text>
-        </TouchableOpacity>
+        <Animated.View style={[animatedTimerStyle]}>
+          <TouchableOpacity
+            style={styles.timerContainer}
+            onPress={toggleTimer}
+            onLongPress={handleResetTimer}
+          >
+            <Text style={styles.timerText}>{formatTime(time)}</Text>
+          </TouchableOpacity>
+        </Animated.View>
       </View>
 
       <View style={styles.scoreSection}>
         <View style={styles.teamScoreColumn}>
           <View style={styles.teamHeader}>
-            {servingTeam === 1 && <FontAwesome5 name="volleyball-ball" size={24} color="green" style={styles.servingIcon} />}
-            <TextInput
-              style={[styles.teamName, {color: team1Color}]}
-              value={team1Name}
-              onChangeText={(name) => dispatch({ type: 'SET_TEAM_NAME', payload: { team: 1, name } })}
-              maxLength={15}
-            />
+            <Animated.View style={{ transform: [{ scale: team1NameScale }] }}>
+              <TextInput
+                style={[styles.teamName, {color: team1Color}]}
+                value={team1Name}
+                onChangeText={(name) => dispatch({ type: 'SET_TEAM_NAME', payload: { team: 1, name } })}
+                maxLength={15}
+                placeholderTextColor={colors.textSubtle}
+              />
+            </Animated.View>
           </View>
           <Text style={[styles.setsText, {color: team1Color}]}>SETS: {setsTeam1}</Text>
-          <TouchableOpacity
-            style={[styles.scoreBox, {borderColor: team1Color}]}
-            onPress={() => addPoint(1)}
-            onLongPress={() => removePoint(1)}
-          >
-            <Text style={[styles.scoreText, {color: team1Color}]}>{scoreTeam1.toString().padStart(2, '0')}</Text>
-          </TouchableOpacity>
+          <Animated.View style={[animatedScoreTeam1Style]}>
+            <TouchableOpacity
+              style={[styles.scoreBox, {borderColor: team1Color}]}
+              onPress={() => addPoint(1)}
+              onLongPress={() => removePoint(1)}
+            >
+              <Text style={[styles.scoreText, {color: team1Color}]}>{scoreTeam1.toString().padStart(2, '0')}</Text>
+            </TouchableOpacity>
+          </Animated.View>
           <TouchableOpacity style={styles.timeoutButton} onPress={() => handleTimeout(1)}>
             <Text style={styles.timeoutText}>T.O. ({timeoutsTeam1})</Text>
           </TouchableOpacity>
@@ -533,22 +869,26 @@ const VolleyballScoreApp = ({ navigation }) => {
 
         <View style={styles.teamScoreColumn}>
           <View style={styles.teamHeader}>
-            <TextInput
-              style={[styles.teamName, {color: team2Color}]}
-              value={team2Name}
-              onChangeText={(name) => dispatch({ type: 'SET_TEAM_NAME', payload: { team: 2, name } })}
-              maxLength={15}
-            />
-            {servingTeam === 2 && <FontAwesome5 name="volleyball-ball" size={24} color="green" style={styles.servingIcon} />}
+            <Animated.View style={{ transform: [{ scale: team2NameScale }] }}>
+              <TextInput
+                style={[styles.teamName, {color: team2Color}]}
+                value={team2Name}
+                onChangeText={(name) => dispatch({ type: 'SET_TEAM_NAME', payload: { team: 2, name } })}
+                maxLength={15}
+                placeholderTextColor={colors.textSubtle}
+              />
+            </Animated.View>
           </View>
           <Text style={[styles.setsText, {color: team2Color}]}>SETS: {setsTeam2}</Text>
-          <TouchableOpacity
-            style={[styles.scoreBox, {borderColor: team2Color}]}
-            onPress={() => addPoint(2)}
-            onLongPress={() => removePoint(2)}
-          >
-            <Text style={[styles.scoreText, {color: team2Color}]}>{scoreTeam2.toString().padStart(2, '0')}</Text>
-          </TouchableOpacity>
+          <Animated.View style={[animatedScoreTeam2Style]}>
+            <TouchableOpacity
+              style={[styles.scoreBox, {borderColor: team2Color}]}
+              onPress={() => addPoint(2)}
+              onLongPress={() => removePoint(2)}
+            >
+              <Text style={[styles.scoreText, {color: team2Color}]}>{scoreTeam2.toString().padStart(2, '0')}</Text>
+            </TouchableOpacity>
+          </Animated.View>
           <TouchableOpacity style={styles.timeoutButton} onPress={() => handleTimeout(2)}>
             <Text style={styles.timeoutText}>T.O. ({timeoutsTeam2})</Text>
           </TouchableOpacity>
@@ -558,6 +898,9 @@ const VolleyballScoreApp = ({ navigation }) => {
       <View style={styles.controlsSection}>
         <TouchableOpacity style={styles.controlButton} onPress={swapSides}>
           <Ionicons name="swap-horizontal-outline" size={24} color="white" />
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.controlButton} onPress={toggleServe}>
+          <Ionicons name="american-football-outline" size={24} color="white" />
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.controlButton}
@@ -573,7 +916,7 @@ const VolleyballScoreApp = ({ navigation }) => {
         </TouchableOpacity>
       </View>
 
-      <View style={styles.rotationSection}>
+      <Animated.View style={[styles.rotationSection, animatedRotationStyle]}>
         <View style={styles.teamRotationColumn}>
           <Text style={styles.rotationTitle}>Rotación {team1Name}</Text>
           <View style={styles.rotationGrid}>
@@ -611,7 +954,7 @@ const VolleyballScoreApp = ({ navigation }) => {
             </View>
           </View>
         </View>
-      </View>
+      </Animated.View>
 
       <Modal
         animationType="fade"
@@ -641,6 +984,24 @@ const VolleyballScoreApp = ({ navigation }) => {
           </Text>
         </TouchableOpacity>
 
+          <Text style={styles.modalSubtitle}>Tema</Text>
+          <TouchableOpacity
+            style={[styles.modalButton, styles.themeToggleButton]}
+            onPress={toggleTheme}
+          >
+            <View style={styles.themeToggleContent}>
+              <Ionicons 
+                name={isDarkMode ? "moon" : "sunny"} 
+                size={20} 
+                color={colors.text} 
+                style={styles.themeIcon}
+              />
+              <Text style={[styles.modalButtonText, { color: colors.text }]}>
+                Modo {isDarkMode ? 'Oscuro' : 'Claro'}
+              </Text>
+            </View>
+          </TouchableOpacity>
+
           <Text style={styles.modalSubtitle}>Color {team1Name}</Text>
           <View style={styles.colorPickerContainer}>
             {['#007bff', '#28a745', '#dc3545', '#ffc107', '#6f42c1', '#17a2b8', '#fd7e14'].map(color => (
@@ -664,7 +1025,7 @@ const VolleyballScoreApp = ({ navigation }) => {
       </View>
 
         <TouchableOpacity style={[styles.modalButton, styles.modalCancelButton]} onPress={() => dispatch({ type: 'SET_SETTINGS_MODAL_VISIBLE', payload: { visible: false } })}>
-          <Text style={[styles.modalButtonText, { color: 'white' }]}>Cerrar</Text>
+          <Text style={[styles.modalButtonText, { color: colors.buttonText }]}>Cerrar</Text>
         </TouchableOpacity>
         </View>
       </View>
@@ -686,7 +1047,7 @@ const VolleyballScoreApp = ({ navigation }) => {
               style={[styles.modalButton, styles.modalCancelButton]}
               onPress={stopCountdown}
             >
-              <Text style={[styles.modalButtonText, { color: 'white' }]}>Cerrar</Text>
+              <Text style={[styles.modalButtonText, { color: colors.buttonText }]}>Cerrar</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -695,35 +1056,38 @@ const VolleyballScoreApp = ({ navigation }) => {
   );
 };
 
-const styles = StyleSheet.create({
+// Función para crear estilos dinámicos basados en el tema
+const createStyles = (colors) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f0f0f0',
+    backgroundColor: colors.background,
   },
   topBar: {
     padding: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#333',
+    backgroundColor: colors.cardBackground,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
   },
   timerContainer: {
-    backgroundColor: 'white',
+    backgroundColor: colors.cardBackground,
     paddingHorizontal: 15,
     paddingVertical: 5,
     borderRadius: 5,
     borderWidth: 1,
-    borderColor: '#555',
+    borderColor: colors.border,
   },
   timerText: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#333',
+    color: colors.text,
   },
   scoreSection: {
     flexDirection: 'row',
     flex: 2,
     borderBottomWidth: 1,
-    borderBottomColor: '#ccc',
+    borderBottomColor: colors.border,
   },
   teamScoreColumn: {
     flex: 1,
@@ -737,30 +1101,31 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 4,
   },
-  servingIcon: {
-    marginHorizontal: 8,
-  },
   teamName: {
     fontSize: 22,
     fontWeight: 'bold',
-    color: '#333',
+    color: colors.text,
     textAlign: 'center',
     paddingHorizontal: 10,
     minWidth: 150,
+    backgroundColor: colors.inputBackground,
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: colors.inputBorder,
   },
   setsText: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#666',
+    color: colors.textSecondary,
     marginBottom: 10,
   },
   scoreBox: {
     borderWidth: 2,
-    borderColor: '#555',
+    borderColor: colors.border,
     paddingHorizontal: 30,
     paddingVertical: 20,
     borderRadius: 5,
-    backgroundColor: 'white',
+    backgroundColor: colors.cardBackground,
     minWidth: 120,
     alignItems: 'center',
     justifyContent: 'center',
@@ -768,22 +1133,22 @@ const styles = StyleSheet.create({
   scoreText: {
     fontSize: 60,
     fontWeight: 'bold',
-    color: '#333',
+    color: colors.text,
   },
   timeoutButton: {
     marginTop: 15,
-    backgroundColor: '#6c757d',
+    backgroundColor: colors.buttonSecondary,
     paddingHorizontal: 15,
     paddingVertical: 8,
     borderRadius: 5,
   },
   timeoutText: {
-    color: 'white',
+    color: colors.buttonText,
     fontWeight: 'bold',
   },
   verticalDivider: {
     width: 1,
-    backgroundColor: '#ccc',
+    backgroundColor: colors.divider,
   },
   controlsSection: {
     flexDirection: 'row',
@@ -793,14 +1158,14 @@ const styles = StyleSheet.create({
     justifyContent: 'space-around',
     borderTopWidth: 1,
     borderBottomWidth: 1,
-    borderColor: '#ccc',
-    backgroundColor: '#f8f9fa',
+    borderColor: colors.border,
+    backgroundColor: colors.cardBackground,
   },
   controlButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#007bff',
+    backgroundColor: colors.buttonPrimary,
     paddingHorizontal: 12,
     paddingVertical: 10,
     borderRadius: 8,
@@ -808,12 +1173,13 @@ const styles = StyleSheet.create({
     marginHorizontal: 5,
   },
   resetButton: {
-    backgroundColor: '#dc3545',
+    backgroundColor: colors.buttonDanger,
   },
   rotationSection: {
     flexDirection: 'row',
     flex: 2,
     paddingTop: 10,
+    backgroundColor: colors.background,
   },
   teamRotationColumn: {
     flex: 1,
@@ -824,15 +1190,16 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     marginBottom: 30,
-    color: '#333',
+    color: colors.text,
   },
   rotationGrid: {
-    width: '90%', // Ajusta el ancho para acomodar 3 columnas
+    width: '90%',
     alignItems: 'center',
+    paddingTop: 20,
   },
   rotationRow: {
     flexDirection: 'row',
-    justifyContent: 'space-around', // Distribuye los círculos uniformemente
+    justifyContent: 'space-around',
     width: '100%',
     marginBottom: 15,
   },
@@ -840,22 +1207,22 @@ const styles = StyleSheet.create({
     width: 50,
     height: 50,
     borderRadius: 25,
-    backgroundColor: '#ADD8E6',
+    backgroundColor: colors.playerCircle,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#666',
+    borderColor: colors.border,
     position: 'relative',
-    marginHorizontal: 5, // Añade un poco de espacio horizontal entre los círculos
+    marginHorizontal: 5,
   },
   playerNumber: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#333',
+    color: colors.text,
   },
   servingPlayerCircle: {
-    backgroundColor: '#4CAF50',
-    borderColor: '#2E8B57',
+    backgroundColor: colors.servingCircle,
+    borderColor: colors.servingCircle,
   },
   serveBallIcon: {
     position: 'absolute',
@@ -870,7 +1237,7 @@ const styles = StyleSheet.create({
   },
   modalView: {
     margin: 20,
-    backgroundColor: 'white',
+    backgroundColor: colors.modalBackground,
     borderRadius: 20,
     padding: 35,
     alignItems: 'center',
@@ -889,47 +1256,61 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontSize: 20,
     fontWeight: 'bold',
+    color: colors.text,
   },
   modalButton: {
-    backgroundColor: '#f0f0f0',
+    backgroundColor: colors.cardBackground,
     borderRadius: 10,
     padding: 15,
     elevation: 2,
     marginBottom: 10,
     width: '100%',
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   modalButtonActive: {
-    backgroundColor: '#007bff',
+    backgroundColor: colors.buttonPrimary,
   },
   modalCancelButton: {
     marginTop: 10,
-    backgroundColor: '#6c757d',
+    backgroundColor: colors.buttonSecondary,
   },
   modalButtonText: {
-    color: 'black',
+    color: colors.text,
     fontWeight: 'bold',
     textAlign: 'center',
   },
   modalButtonTextActive: {
-    color: 'white',
+    color: colors.buttonText,
+  },
+  themeToggleButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  themeToggleContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  themeIcon: {
+    marginRight: 8,
   },
   timeoutTeamName: {
     fontSize: 22,
     fontWeight: 'bold',
     marginBottom: 15,
-    color: '#333',
+    color: colors.text,
   },
   timeoutCountdownText: {
     fontSize: 80,
     fontWeight: 'bold',
-    color: '#dc3545',
+    color: colors.buttonDanger,
     marginBottom: 15,
-    // Evita que el ancho del texto cambie al contar
     fontVariant: ['tabular-nums'],
   },
   timeoutInfoText: {
     fontSize: 16,
-    color: '#666',
+    color: colors.textSecondary,
     marginBottom: 20,
   },
   modalSubtitle: {
@@ -939,6 +1320,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     textAlign: 'center',
     width: '100%',
+    color: colors.text,
   },
   colorPickerContainer: {
     flexDirection: 'row',
@@ -952,11 +1334,12 @@ const styles = StyleSheet.create({
     height: 40,
     borderRadius: 20,
     margin: 5,
-    borderColor: '#ccc', // Default border for unselected
+    borderColor: colors.border,
     borderWidth: 1,
   },
-  colorOptionSelected: { // Estilo para la opción de color seleccionada
-    borderColor: '#333', // Borde más oscuro para indicar selección
+  colorOptionSelected: {
+    borderColor: colors.text,
+    borderWidth: 2,
   },
 });
 

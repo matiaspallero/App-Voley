@@ -6,7 +6,7 @@ export const ThemeContext = createContext();
 
 export const ThemeProvider = ({ children }) => {
   const systemColorScheme = useColorScheme();
-  const [theme, setTheme] = useState(systemColorScheme || 'light'); // Default to system or light
+  const [theme, setTheme] = useState(systemColorScheme || 'auto'); // Default to system or auto
 
   useEffect(() => {
     const loadTheme = async () => {
